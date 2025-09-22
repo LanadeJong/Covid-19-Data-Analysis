@@ -1,0 +1,676 @@
+---
+title: "Assignment_1"
+format: html
+editor: visual
+editor_options: 
+  chunk_output_type: inline
+---
+
+## Lana de Jong
+
+## 24797618 Assignment 1
+
+# Part A
+
+```{r}
+library(tidyverse)
+library(dplyr)
+library(ggplot2)
+library(zoo)
+library(cowplot)
+library(gridExtra)
+library(grid)
+library(treemapify)
+```
+
+## Cleaning of the Cumulative Case data
+
+This link to this data was provided in the Assignment brief: - https://mediahack.co.za/datastories/coronavirus/data/
+
+```{r}
+old_data <- read.csv("data/cumulative-case-data.csv")
+clean_data <- old_data |>
+  filter(date!= "")|>
+  mutate_if(is.numeric, list(~abs(.))) |>
+  mutate(date = as.Date(date, format = "%d-%m-%Y"))
+
+clean_data[is.na(clean_data)] <- 0
+```
+
+## 1. Daily vaccinations
+
+```{r}
+#| warning: false
+clean_daily_vaccs <-clean_data |>
+  filter(vaccinated_daily>0)
+
+daily_vacs_graph <- clean_daily_vaccs |>
+ggplot( aes(x=date, y=vaccinated_daily)) +
+  geom_bar(stat = "identity", fill = "lightgreen")+
+  scale_x_date(date_labels = "%d %b", date_breaks = '3 months')+
+  scale_y_continuous(labels=scales::comma)+
+  labs(
+    x = "Date",
+    y = "Number of Vaccinations",
+    title ="Daily Vaccinations")+
+  theme(panel.grid.major.y =element_line(linetype ="dotted", color = "black") ,
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(),)
+
+
+  daily_vacs_table <- clean_daily_vaccs |>
+  filter(vaccinated_daily != 0) |>
+  arrange(desc(date)) |>
+  mutate(date = format (date, "%d %b"),
+         label=scales::comma (vaccinated_daily)) |>
+  select(date, label) |>
+    mutate(VACCINATIONS_PER_DAY = paste(date, label, sep=" - ")) |>
+    select(VACCINATIONS_PER_DAY) |>
+    head(8)|>
+    rename_all(~gsub("_", " ",.)
+    )
+
+daily_vacs_table <- tableGrob(daily_vacs_table, rows = NULL, theme=ttheme_default(base_size = 10, core = list(bg_params = gpar(fill = "transparent"))))
+ 
+plot_grid(daily_vacs_graph, daily_vacs_table, labels = NULL)
+
+```
+
+## 2. Daily confirmed cases
+
+Please view this graph in a new window to correctly display the lockdown level's labels.
+
+```{r}
+#| warning: false
+clean_daily_confirmed <-clean_data |>
+  mutate(
+    lockdown_level=case_when(
+      date <= dmy("30-04-2020")~"Level 5",
+      date <= dmy ("31-05-2020")~"Level 4.1",
+      date <= dmy ("17-08-2020")~"Level 3.1",
+      date <= dmy ("20-09-2020")~"Level 2.1",
+      date <= dmy ("28-12-2020")~ "Level 1.1",
+      date <= dmy ("28-02-2021")~ "Level 3.2",
+      date <= dmy ("30-05-2021")~ "Level 1.2",
+      date <= dmy ("15-06-2021")~ "Level 2.2",
+      date <= dmy (" 27-06-2021")~ "Level 3.2",
+      date <= dmy (" 25-07-2021")~ "Level 4.2",
+      date <= dmy (" 12-09-2021")~ "Level 3.3",
+      date <= dmy ("30-09-2021")~ "Level 2.2",
+      date >= dmy ("01-10-2021")~ "Level 1.3",
+    )
+)
+
+lockdown_level_data <-clean_daily_confirmed |>
+  group_by(lockdown_level) |>
+  summarise(start_date = min(date), end_date = max(date))
+lockdown_level_data
+
+confirmed_cases<- clean_daily_confirmed |>
+mutate(seven_day_mean = rollmean (clean_daily_confirmed$cases_daily, k = 7, fill = NA))
+
+daily_confirmed_cases <-clean_daily_confirmed|>
+  ggplot()+
+  geom_rect (data=lockdown_level_data, aes (ymin = 0, max = 30000, xmin = start_date, xmax = end_date, fill =
+lockdown_level))+
+geom_col (aes (x = date, y = cases_daily), fill = "blue") +
+geom_line(data=confirmed_cases, aes(x=date, y=seven_day_mean), color = "red") +
+  geom_text(data = lockdown_level_data, aes(x = start_date, y = 30000, label = paste(substr(lockdown_level, 1,1), substr(lockdown_level, 7, 7))), vjust = 1, hjust=-1, color="white") +
+  scale_fill_manual(values = c("Level 5" = "grey40", 
+                               "Level 4.1" = "grey50", 
+                               "Level 3.1" = "grey60", 
+                               "Level 2.1" = "grey70", 
+                               "Level 1.1" = "grey80", 
+                               "Level 3.2" = "grey60", 
+                               "Level 1.2" = "grey80", 
+                               "Level 2.2" = "grey70", 
+                               "Level 4.2" = "grey50", 
+                               "Level 3.3" = "grey60", 
+                               "Level 1.3" = "grey80"))+
+                  
+scale_y_continuous (labels=scales::comma) +
+scale_x_date(date_labels = "%d %b", date_breaks = "3 month") +
+labs (x = "Date",
+y = "Daily Confirmed Cases",
+title = "Daily Confirmed Cases")+
+  theme(legend.position ="none",
+        panel.grid.major = element_blank() ,
+        panel.grid.minor = element_blank(),
+        plot.background = element_blank(),
+        panel.background = element_blank(),
+        ) 
+daily_confirmed_cases
+
+```
+
+## 3. Active cases total by date
+
+```{r}
+#| warning: false
+ggplot(clean_data, aes(x=date, y=active_cases)) +
+  geom_bar(stat = "identity", fill = "blue")+
+  scale_x_date(date_labels = "%d %b", date_breaks = '3 months')+
+  scale_y_continuous(labels=scales::comma, breaks = seq(0, max(clean_data$active_cases), by = 100000))+
+  labs(
+    x="Date",
+    y="Number of Active Cases",
+    title ="Active case total by day")+ 
+   theme(panel.grid.major.y =element_line(linetype ="dotted", color = "black"),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(),)
+```
+
+##Cleaning of the Province data Here is the link for the data: - https://health.google.com/covid-19/open-data/raw-data?loc=ZA I used a compiled csv file for all the provinces. This file was provided by a classmate, all data was sourced for the above mentioned link.
+
+```{r}
+#| warning: false
+old_province_data <- read_csv("data/provinces_data.csv")
+clean_province_data <- old_province_data |> 
+  filter(date >="2021-08-28" & date <="2022-04-07")
+```
+
+## 4. Daily case trends
+
+```{r}
+#| warning: false
+start_date <- min (clean_province_data$date)
+end_date <- max (clean_province_data$date)
+
+western_cape<- clean_province_data |>                                                     
+  filter(location_key=="ZA_WC") |>                                                   
+  mutate(seven_day_mean =rollmean (new_confirmed, k = 7, fill=NA))|> 
+  ggplot()+
+  geom_line(aes(x=date, y=seven_day_mean),color="red")+
+  scale_y_continuous (labels = NULL) +  
+  scale_x_date(date_labels = "%d %b", breaks = c(start_date, end_date))+
+  labs(x = "",
+       y = "",
+       title ="Western Cape") +
+  theme(axis.ticks.y = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank())
+western_cape   
+
+gauteng<- clean_province_data |>                                                     
+  filter(location_key == "ZA_GP") |>                                                   
+  mutate(seven_day_mean =rollmean (new_confirmed, k = 7, fill=NA))|> 
+  ggplot()+
+  geom_line(aes(x=date, y = seven_day_mean), color = "red")+
+  scale_y_continuous (labels = NULL) +  
+  scale_x_date(date_labels = "%d %b", breaks = c(start_date, end_date))+
+  labs(x = "",
+       y = "",
+       title ="Gauteng")+
+  theme(axis.ticks.y = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank())
+gauteng    
+
+north_west<- clean_province_data |>                                                     
+  filter(location_key == "ZA_NW") |>                                                   
+  mutate(seven_day_mean = rollmean (new_confirmed, k = 7, fill=NA))|> 
+  ggplot()+
+  geom_line(aes(x = date, y = seven_day_mean), color = "red")+
+  scale_y_continuous (labels=NULL) +  
+  scale_x_date(date_labels = "%d %b", breaks = c(start_date, end_date))+
+  labs(x = "",
+       y = "",
+       title ="North West")+
+  theme(axis.ticks.y = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank())
+north_west    
+
+eastern_cape<- clean_province_data |>                                                     
+  filter(location_key == "ZA_EC") |>                                                   
+  mutate(seven_day_mean = rollmean (new_confirmed, k = 7, fill=NA))|> 
+  ggplot()+
+  geom_line(aes(x = date, y = seven_day_mean), color = "red")+
+  scale_y_continuous (labels = NULL) +  
+  scale_x_date(date_labels = "%d %b", breaks = c(start_date, end_date))+
+  labs(x = "",
+       y = "",
+      title = "Eastern Cape")+
+  theme(axis.ticks.y = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank())
+eastern_cape                                                  
+  
+kwazulu_natal<- clean_province_data |>
+  filter(location_key == "ZA_KZN") |>                                                   
+  mutate(seven_day_mean = rollmean (new_confirmed, k = 7, fill=NA))|> 
+  ggplot()+
+  geom_line(aes(x = date, y = seven_day_mean), color="red")+
+  scale_y_continuous (labels=NULL) +  
+  scale_x_date(date_labels = "%d %b", breaks = c(start_date, end_date))+
+  labs(x="",
+       y="",
+      title ="Kwazulu Natal")+
+  theme(axis.ticks.y = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank())
+kwazulu_natal  
+
+northern_cape<- clean_province_data |>                                                     
+  filter(location_key == "ZA_NC") |>                                                   
+  mutate(seven_day_mean = rollmean (new_confirmed, k = 7, fill=NA))|> 
+  ggplot()+
+  geom_line(aes(x = date, y = seven_day_mean), color = "red")+
+  scale_y_continuous (labels = NULL) +  
+  scale_x_date(date_labels = "%d %b", breaks = c(start_date, end_date))+
+  labs(x = "",
+       y = "",
+      title ="Northern Cape")+
+  theme(axis.ticks.y = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank())
+northern_cape 
+
+limpopo<- clean_province_data |>                                                     
+  filter(location_key == "ZA_LP") |>                                                   
+  mutate(seven_day_mean =rollmean (new_confirmed, k = 7, fill=NA))|> 
+  ggplot()+
+  geom_line(aes(x=date, y=seven_day_mean), color="red")+
+  scale_y_continuous (labels=NULL) +  
+  scale_x_date(date_labels = "%d %b", breaks = c(start_date, end_date))+
+  labs(x = "",
+       y = "",
+      title = "Limpopo")+
+  theme(axis.ticks.y = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank())
+limpopo
+
+mpumalanga<- clean_province_data |>                                                     
+  filter(location_key == "ZA_MP") |>                                                   
+  mutate(seven_day_mean = rollmean (new_confirmed, k = 7, fill=NA))|> 
+  ggplot()+
+  geom_line(aes(x = date, y = seven_day_mean), color = "red")+
+  scale_y_continuous (labels = NULL) +  
+  scale_x_date(date_labels = "%d %b", breaks = c(start_date, end_date))+
+  labs(x = "",
+       y = "",
+      title = "Mpumalanga")+
+  theme(axis.ticks.y = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank())
+mpumalanga
+
+free_state<- clean_province_data |>                                                     
+  filter(location_key == "ZA_FS") |>                                                   
+  mutate(seven_day_mean = rollmean (new_confirmed, k = 7, fill=NA))|> 
+  ggplot()+
+  geom_line(aes(x = date, y = seven_day_mean), color = "red")+
+  scale_y_continuous (labels = NULL) +  
+  scale_x_date(date_labels = "%d %b", breaks = c(start_date, end_date))+
+  labs(x = "",
+       y = "",
+      title = "Free State")+
+  theme(axis.ticks.y = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank())
+free_state
+
+plot_grid(western_cape, gauteng, north_west, eastern_cape, kwazulu_natal, northern_cape, free_state, mpumalanga, limpopo, nrow=2)
+
+```
+
+## 5. Cases vs. active cases
+
+```{r}
+#| warning: false
+total_cases <- clean_data |>
+  summarise(total_confirmed_cases = max(cumulative_cases),
+            total_active_cases = max(active_cases))
+
+ggplot(clean_data, aes(x=date))+
+  geom_line(aes(y=cumulative_cases, color="Confirmed cases")) +
+  geom_line(aes(y=active_cases, color = "Active cases"))+
+  geom_text(data=clean_data |> filter(date==max(date)), aes(x=date, y=cumulative_cases, label=scales::comma(cumulative_cases)), hjust=1, vjust=-.5, size=4)+
+  geom_text(data= clean_data |> filter(date==max(date)), aes(x=date, y=active_cases, label=scales::comma(active_cases)), hjust=0.5, vjust=-1.5, size=4)+
+  scale_y_continuous (labels=scales::comma) +
+  scale_x_date(date_labels = "%d %m ", date_breaks = "12 months")+
+  labs(x="Date",
+       y="Number of Active Cases",
+      title ="Cases vs Active Cases")+ 
+  scale_color_manual(name=NULL, values=c("Confirmed cases"="red", "Active cases"="blue"))+
+  theme(legend.position = c(.1,.8), 
+        panel.grid.major =element_blank() ,
+        panel.grid.minor =element_blank(),
+        plot.background = element_blank(),
+        panel.background = element_blank())
+
+```
+
+## 6. Provincial infection per 100,000 population
+
+```{r}
+#| warning: false
+inf_population <-old_province_data |>
+  filter(!is.na(new_confirmed))|>
+  group_by(subregion1_name) |>
+  summarise(infections=(sum(new_confirmed)/population)*100000) |>
+  distinct()
+
+chart<- inf_population |>                                                     
+ggplot( aes(x = infections, y = reorder(subregion1_name,infections))) +
+  geom_bar(stat = "identity", fill="red") +
+  geom_text(aes(label=format(round(infections,2), big.mark=",",decimal.mark="."), x=infections),hjust=-0.1, size=3)+
+  labs(title = "Provincial infection per 100,000 population",
+       x = "Province",
+       y = "Infections Rate per 100,000 by Province")+
+  theme(panel.grid.minor =element_blank(),
+        panel.background = element_blank(),
+        axis.ticks.x = element_blank(),
+        axis.text.x=element_blank())
+chart
+
+```
+
+##7. Rt estimates for South Africa
+
+```{r}
+#| warning: false
+Rt_data<- clean_data |>
+  select(date, recoveries, deaths_daily, cases_daily)|>
+  mutate(daily_recoveries=recoveries-lag(recoveries),
+         average_deaths=rollmean(deaths_daily, k=31, fill=NA),
+         average_recoveries=rollmean(daily_recoveries, k=31, fill=NA),
+         average_cases=rollmean(cases_daily, k=31, fill=NA),
+         no_longer_cases=average_recoveries-average_deaths,
+         Rt=average_cases/no_longer_cases)
+
+Rt_graph<-Rt_data |>
+  mutate(lower_bound=Rt-0.5,
+         upper_bound=Rt+0.5) |>
+  filter(date >= dmy("07-04-2020") & date <= dmy("01-04-2022")) |>
+  ggplot (aes(x=date, y=Rt)) +
+  geom_ribbon (aes(ymin=lower_bound, ymax=upper_bound, fill="90% CREDIBLE INTERVAL"), alpha=0.3)+
+  geom_point(color="red")+
+  geom_text(data = filter(Rt_data, date == dmy("21-02-2022")), aes(y=2.5,label = paste("21 February\n Rt =", round(Rt,2)))) +
+  geom_hline(yintercept = 1.0, linetype = "dashed", color = "black")+
+  scale_fill_manual(name=NULL, values=c("90% CREDIBLE INTERVAL"="darkblue"))+
+  scale_x_date(date_labels="%b %y",date_breaks = "3 months")+
+  scale_y_continuous (labels = scales::label_number (accuracy = 0.1), breaks = seq(0, 3.0, by = 0.5))+
+  labs(title ="Rt estimates for South Africa",)+ 
+  theme(
+    legend.position = c(.9,.9),
+    panel.border=element_blank(),
+    panel.background=element_rect(fill="white"),
+    panel.grid.major.y=element_line(linetype="dotted", color="black"),
+    panel.grid.major.x=element_blank(),
+    panel.grid.minor.y=element_blank(),
+    panel.grid.minor.x=element_blank(),
+    text=element_text(color="black"),
+    axis.title.x=element_blank(),
+    axis.title.y=element_blank(),
+    axis.text.x=element_text(color="black"),
+    axis.text.y=element_text(color="black"),
+    )
+Rt_graph
+```
+
+# Part B
+
+Here are the links for the data used for the first 3 graphs in this section:
+
+-   United States data: https://health.google.com/covid-19/open-data/raw-data?loc=US
+-   New Zealand data: https://health.google.com/covid-19/open-data/raw-data?loc=NZ
+
+## Clean data for US and NZ
+
+```{r}
+old_US_data <- read.csv("US.csv")
+clean_US_data <- old_US_data |>
+     filter(date!= "")|>
+    mutate_if(is.numeric, list(~abs(.))) |>
+    mutate(date = as.Date(date, format = "%Y-%m-%d"))
+
+clean_US_data[is.na(clean_US_data)] <- 0
+
+old_NZ_data <- read.csv("NZ.csv")
+clean_NZ_data <- old_NZ_data |>
+     filter(date!= "")|>
+    mutate_if(is.numeric, list(~abs(.))) |>
+    mutate(date = as.Date(date, format = "%Y-%m-%d"))
+
+clean_NZ_data[is.na(clean_NZ_data)] <- 0
+
+```
+
+## 1. Daily confirmed cases comparing US and NZ
+
+This graph illustrates the daily confirmed cases for the United States and New Zealand. This graph is interesting because it shows the contrast in how different the Covid-19 pandemic affected these countries. This graph shows that the United States was severely impacted by the COVID-19 pandemic when compared to New Zealand.
+
+```{r}
+#| warning: false
+daily_graph <- clean_NZ_data |>
+  ggplot(aes(x=date, y=new_confirmed)) +
+  geom_col(data = clean_US_data, aes(color = "United States")) +
+  geom_col(data = clean_NZ_data, aes(color="New Zealand")) +
+  scale_x_date(date_labels = "%d %b %y", date_breaks = '6 months') +
+  scale_y_continuous(labels=scales::comma) +
+  scale_color_manual(name="Country", values=c("United States"="#048BA8","New Zealand"= "#9EBD6E")) +
+  labs(
+    x="Date",
+    y="Number of New Cases",
+    title ="Daily confirmed cases for US and NZ") +
+  theme(
+    legend.position = c(.2,.8), 
+    axis.line = element_line(size = 0.5, colour = "black"),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    plot.background = element_blank(),
+    panel.background = element_blank()
+    )
+daily_graph
+```
+
+## 2. US Hospitalised vs Deceased cases
+
+This graph illustrated the amount of hospitalised cases compared to the deceased cases for the United States. The data used is from the 1st of January 2020 until the 17th of September 2022.
+
+```{r}
+#| warning: false
+ggplot(clean_US_data, aes(x=date))+
+  geom_line(aes(y=new_hospitalized_patients, color="Hospitalised cases")) +
+  geom_line(aes(y=new_deceased, color="Deceased cases"))+
+  scale_y_continuous (labels=scales::comma) +
+  scale_x_date(date_labels = "%b %y", date_breaks = "12 months")+
+  labs(x="Date",
+       y="Number of Cases",
+      title ="Hospitalised vs Deceased Cases for US")+ 
+  scale_color_manual(name=NULL, values=c("Hospitalised cases"="blue", "Deceased cases"="red"))+
+  theme(legend.position ="right",
+        panel.grid.major.y=element_line(linetype="dotted", color="black"),
+        panel.grid.minor =element_blank(),
+        plot.background = element_blank(),
+        panel.background = element_blank())
+```
+
+# 3. Popularity of Vaccines used in the US
+
+This graph illustrates the type of Vaccine that Americans chose. The purpose of this graph is to show the popularity of the Janssen, Moderna and Phizer vaccine in the United States.
+
+```{r}
+#| warning: false
+vaccines_used <- clean_US_data |>
+  summarise(Pfizer = sum(cumulative_persons_fully_vaccinated_pfizer),
+            Janssen = sum(cumulative_persons_fully_vaccinated_janssen),
+            Moderna=sum(cumulative_persons_fully_vaccinated_moderna)) 
+ 
+vaccines_long <- tidyr::pivot_longer(vaccines_used, cols = everything(), names_to = "Vaccine", values_to = "Total")
+           
+ ggplot(vaccines_long, aes(x = Vaccine, y = Total, fill = Vaccine)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label=format(round(Total, 2), big.mark = ",")), hjust = 0.5, vjust=-1, size = 3) +
+  scale_y_continuous (labels=scales::comma) +
+  labs(title = "Total Persons Fully Vaccinated by Vaccine Type",
+       x = "Vaccine",
+       y = "Total Persons Fully Vaccinated") +
+  theme(
+    legend.position = "none",
+    axis.line = element_line(size = 0.5, colour = "black"),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    plot.background = element_blank(),
+    panel.background = element_blank()
+    )
+ 
+```
+
+The rest of the graphs make use of the South African data used in Part A.
+
+## 4. Provincial New Confirmed Case
+
+This graph illustrates the total amount of confirmed COVID cases for each province. The data used for this graph shows the confirmed cases from the 28th August 2020 until 7th of April 2022.
+
+```{r}
+#| warning: false
+pop_confirmed <-clean_province_data |>
+  filter(!is.na(new_confirmed))|>
+  group_by(subregion1_code) |>
+  summarise(confirmed=sum(new_confirmed)) |>
+  distinct()
+
+pop_confirmed_graph <- pop_confirmed |>
+  ggplot(aes(x = subregion1_code, y = confirmed, fill = subregion1_code)) +
+  geom_col() +
+  geom_text(aes(label = format(round(confirmed, 2), big.mark = ",", decimal.mark = ".")), hjust = 0.5,vjust=-0.3, size = 4) +
+  scale_y_continuous(labels = scales::comma) +
+  labs(
+    title = "Provincial New Confirmed cases",
+    x = "Province",
+    y = "New Confirmed Cases",
+    caption = "Data obtained from 2021-08-28 until 2022-04-07"
+    )+
+  theme(legend.position = "",
+        panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    plot.background = element_blank(),
+    panel.background = element_blank(),
+    )
+pop_confirmed_graph
+```
+
+## 5. Mortality rate per province
+
+This treemap graph illustrates the COVID mortality rates per province.
+
+```{r}
+#| warning: false
+total_deceased <- clean_province_data |>
+  summarise(total_deceased = sum(new_deceased, na.rm = TRUE))
+
+clean_p_data <- clean_province_data |>
+  filter(!is.na(new_deceased))
+
+deceased_data <- clean_p_data |>
+  group_by(subregion1_name) |>
+  summarise(deceased = sum(new_deceased, na.rm = TRUE)) |>
+  mutate(deceased_percent = deceased / total_deceased$total_deceased)
+
+treemap_graph <- deceased_data|>
+  ggplot( aes(area = deceased_percent, fill = subregion1_name, label = paste0(subregion1_name, "\n", sprintf("%.2f%%", deceased_percent * 100)))) +
+  geom_treemap() +
+  geom_treemap_text(place = "centre", colour = "white", size = 15) +
+  labs(title = "Mortality rate per Province") +
+  theme(legend.position = "none")
+treemap_graph
+
+```
+
+## 6. Private vs Public Tests
+
+This graph compares the amount of private and public tests taken every week for the 1st of May 2020 until the end of December 2020. Please view this graph in a different window, as it is better at showing the week numbers.
+
+```{r}
+#| warning: false
+public_vs_private <- clean_data |>
+  filter(!is.na(date)) |>
+   group_by(week_no) |>
+   summarise(public = sum(new_public_tests),
+             private = sum(new_private_tests)) |>
+   distinct()
+
+
+public_vs_private_long<-public_vs_private|>
+  filter(!is.na(week_no) & week_no >= 9 & week_no <= 44) |>
+  pivot_longer(cols=c(public, private), 
+               names_to="Testing",
+               values_to="Number")|>
+  filter(Number!=0) 
+  
+
+ggplot(public_vs_private_long, aes(x =factor(week_no) , y=Number, fill=Testing)) +
+  geom_bar(stat="identity", position = "dodge", width = 0.5) +
+  scale_y_continuous(labels=scales::comma)+
+  labs(title = "Types of test",
+       x = "Week Number",
+       y = "Number of Tests",
+       fill = "Test Types",
+       caption="Data obtained from the start of May 2020 until the end of December 2020") +
+   scale_fill_manual(values = c(private="#3CBBB1", public="#904E55"), labels=c(private="Private tests", public="Public tests")) +
+  theme_minimal()+
+  theme(
+    axis.line = element_line(size = 0.5, colour = "black"),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    plot.background = element_blank(),
+    panel.background = element_blank()
+    )
+
+```
+
+## 7 SA Covid related deaths recorded during summer and winter seasons
+
+This graph illustrates COVID-related deaths during summer and winter months. This graph was created to determine if different seasons had an effect on the amount of daily deaths.
+
+```{r}
+#| warning: false
+season_data <- clean_data |>
+  select(date, deaths_daily) |>
+  mutate(Season = case_when(
+  month(date) %in% c(12, 1, 2, 3, 4, 11) ~ "Summer",
+  TRUE ~ "Winter"))
+
+season_graph <- season_data |>
+ggplot(aes(x = date, y = deaths_daily, colour = Season)) +
+  geom_point() +
+  scale_colour_manual(values = c("Summer" = "#3CBBB1", "Winter" = "#4466CC")) +
+  scale_x_date(date_labels = "%b %y", date_breaks = '6 months')+
+  labs( title="Covid related deaths recorded during summer and winter seasons",
+    x = "Dates", 
+    y = "Daily Deaths") +
+  theme_minimal()
+season_graph
+
+```
+
+##Bonus graph: I created this pie chart before I realised it is not Covid related. I could not find relevant COVID data to display instead. This pie chart data displays the population distribution of South African provinces.
+
+```{r}
+#| warning: false
+total_pop <- clean_province_data |>
+  distinct(population) |>
+  summarise(total_population = sum(population))
+
+clean_p_data <- clean_province_data |>
+  filter(!is.na(new_confirmed))
+
+pop_data <- clean_p_data |>
+  group_by(subregion1_name) |>
+  summarise(populations = sum(population)) |>
+  mutate(pop_percent = (populations / total_pop$total_population))
+
+pie_chart <- ggplot(pop_data, aes(x = "", y = pop_percent, fill = subregion1_name)) +
+  geom_bar(stat = "identity", width = 1) +
+  coord_polar("y", start = 0) +
+  labs(
+    title = "Population Distribution by Province",
+    fill = "Province") +
+  geom_text(aes(label = paste0(sprintf("%.2f", pop_percent), "%")), position = position_stack(vjust = 0.5), color="white") +
+  theme_void() +
+  theme(legend.position = "right")
+pie_chart
+```
